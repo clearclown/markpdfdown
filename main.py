@@ -6,8 +6,8 @@ import time
 
 from dotenv import load_dotenv
 
-from core import LLMClient
 from core.FileWorker import create_worker
+from core.LLMClient import LLMClient
 from core.Util import remove_markdown_warp
 
 logging.basicConfig(
@@ -19,10 +19,33 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# Global LLM client instance (initialized once)
+_llm_client = None
+
+
+def get_llm_client() -> LLMClient:
+    """
+    Get or create the global LLM client instance.
+    Uses LLM_PROVIDER environment variable to select provider.
+
+    Supported providers:
+        - openai: OpenAI API (default)
+        - deepseek: DeepSeek API (OpenAI-compatible)
+        - gemini: Google Gemini API
+
+    Returns:
+        LLMClient: Configured LLM client
+    """
+    global _llm_client
+    if _llm_client is None:
+        provider_name = os.getenv("LLM_PROVIDER", "openai").lower()
+        logger.info(f"Initializing LLM client with provider: {provider_name}")
+        _llm_client = LLMClient(provider_name=provider_name)
+    return _llm_client
+
 
 def completion(
     message,
-    model="",
     system_prompt="",
     image_paths=None,
     temperature=0.5,
@@ -30,38 +53,23 @@ def completion(
     retry_times=3,
 ):
     """
-    Call OpenAI's completion interface for text generation
+    Call LLM completion interface for text generation.
 
     Args:
         message (str): User input message
-        model (str): Model name
         system_prompt (str, optional): System prompt, defaults to empty string
         image_paths (List[str], optional): List of image paths, defaults to None
         temperature (float, optional): Temperature for text generation, defaults to 0.5
         max_tokens (int, optional): Maximum number of tokens for generated text, defaults to 8192
+        retry_times (int, optional): Number of retry attempts, defaults to 3
+
     Returns:
         str: Generated text content
     """
+    client = get_llm_client()
 
-    # Get API key and API base URL from environment variables
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        logger.error("Please set the OPENAI_API_KEY environment variables")
-        exit(1)
-    base_url = os.getenv("OPENAI_API_BASE")
-    if not base_url:
-        base_url = "https://api.openai.com/v1/"
-
-    # If no model is specified, use the default model
-    if not model:
-        model = os.getenv("OPENAI_DEFAULT_MODEL")
-        if not model:
-            model = "gpt-4o"
-
-    # Initialize LLMClient
-    client = LLMClient.LLMClient(base_url=base_url, api_key=api_key, model=model)
     # Call completion method with retry mechanism
-    for _ in range(retry_times):
+    for attempt in range(retry_times):
         try:
             response = client.completion(
                 user_message=message,
@@ -72,9 +80,9 @@ def completion(
             )
             return response
         except Exception as e:
-            logger.error(f"LLM call failed: {str(e)}")
-            # If retry fails, wait for a while before retrying
-            time.sleep(0.5)
+            logger.error(f"LLM call failed (attempt {attempt + 1}/{retry_times}): {e}")
+            if attempt < retry_times - 1:
+                time.sleep(0.5 * (attempt + 1))  # Exponential backoff
     return ""
 
 

@@ -1,27 +1,48 @@
 import logging
 from typing import Optional
 
-import openai
+from .providers import BaseProvider, create_provider
 
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
     """
-    OpenAI API compatible client class
+    Unified LLM client that supports multiple providers.
+    Supports: OpenAI, DeepSeek, Google Gemini
     """
 
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(
+        self,
+        provider: Optional[BaseProvider] = None,
+        provider_name: Optional[str] = None,
+        # Legacy parameters for backwards compatibility
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         """
-        Initialize OpenAI API client
-        :param base_url: Base URL for OpenAI API
-        :param api_key: OpenAI API key
-        :param model: Name of the model to use
+        Initialize LLM client.
+
+        Args:
+            provider: Pre-configured provider instance
+            provider_name: Provider name ("openai", "deepseek", "gemini")
+            base_url: (Legacy) Base URL for OpenAI-compatible API
+            api_key: (Legacy) API key
+            model: (Legacy) Model name
         """
-        self.base_url = base_url
-        self.api_key = api_key
-        self.model = model
-        self.client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        if provider is not None:
+            self._provider = provider
+        else:
+            # Create provider based on name or environment
+            self._provider = create_provider(provider_name)
+
+        logger.info(f"LLMClient initialized with provider: {self._provider.name}")
+
+    @property
+    def provider(self) -> BaseProvider:
+        """Get the current provider."""
+        return self._provider
 
     def completion(
         self,
@@ -32,7 +53,7 @@ class LLMClient:
         max_tokens: int = 8192,
     ) -> str:
         """
-        Create chat dialogue (supports multimodal)
+        Create chat completion (supports multimodal).
 
         Args:
             user_message: User message content
@@ -44,46 +65,10 @@ class LLMClient:
         Returns:
             str: Model generated response content
         """
-        # Create the message content
-        user_content = [{"type": "text", "text": user_message}]
-        if image_paths:
-            for img_path in image_paths:
-                base64_image = self.encode_image(img_path)
-                user_content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                    }
-                )
-
-        messages = []
-        if system_prompt:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ]
-        else:
-            messages = [{"role": "user", "content": user_content}]
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                extra_headers={
-                    "X-Title": "MarkPDFdown",
-                    "HTTP-Referer": "https://github.com/MarkPDFdown/markpdfdown.git",
-                },
-            )
-            return response.choices[0].message.content
-
-        except Exception as e:
-            logger.error(f"API request failed: {str(e)}")
-            raise e
-
-    def encode_image(self, image_path: str) -> str:
-        import base64
-
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode("utf-8")
+        return self._provider.completion(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            image_paths=image_paths,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )

@@ -5,16 +5,25 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "openai==1.66.3",
+    "openai>=1.66.3",
     "pymupdf==1.25.3",
     "pypdf2==3.0.1",
     "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+gemini = [
+    "google-genai>=1.0.0",
+]
+all = [
+    "google-genai>=1.0.0",
 ]
 
 [dependency-groups]
 dev = [
     "pre-commit>=4.2.0",
     "pytest==8.3.5",
+    "pytest-cov>=4.0.0",
     "ruff>=0.11.11",
 ]
 
